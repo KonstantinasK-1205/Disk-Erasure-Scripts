@@ -1,296 +1,217 @@
 #!/bin/bash
-OutputHorizontalLine(){
-	printf '%*s\n' "${COLUMNS:-$(stty size | awk '{printf $2}')}" '' | tr ' ' -
-	echo -ne ${_DEFAULT}
-}
+# Script written by Konstantinas Kaušas
+# Main script purpose is to sort and manage certificates:
+#		1) Find and remove certificate duplicates ( if someone saved same certificates more than once )
+#		2) Fixing Drive erasure .pdf filenames, correcting disk capacity size and removing unneccessary text
+#		3) Sort all certificates by disk FFactor (2.5", 3.5") which was gathered from Disk Output Log
+#		4) Sort all FFactor drives by Manufacturer, Capacity and its sanitizing status
 
-CheckRenamePackage(){
-	local RenameHelp=$(rename -V)
-	if [[ "$RenameHelp" == *"/usr/bin/rename"* ]]; then
-		RenameType="Perl"
-	elif [[ "$RenameHelp" == *"util-linux"* ]]; then
-		RenameType="Unix"
-	else
-		RenameType="Non"
-	fi
-}
+export LC_ALL='C'
+
+# Declate global array < PDF Name Pattern > = Directory Name
+declare -A mafArray
+mafArray["WDC"]=WD
+mafArray["Maxtor"]=Maxtor
+mafArray["HGST"]=HGST
+mafArray["Hitachi"]=HGST
+mafArray["HTS"]=HGST
+mafArray["SanDisk"]=SanDisk
+mafArray["TOSHIBA"]=Toshiba
+mafArray["OCZ"]=OCZ
+mafArray["FUJITSU"]=Fujitsu
+mafArray["TEAM"]=TeamGroup
+mafArray["ADATA"]=ADATA
+mafArray["ASP"]=ADATA
+mafArray["LITEONIT"]=LiteOnIt
+mafArray["HP"]=HP
+mafArray["Corsair"]=Corsair
+mafArray["Micron"]=Micron
+mafArray["CT"]=Crucial
+mafArray["SAMSUNG"]=Samsung
+mafArray["MZ-"]=Samsung
+mafArray["MTFD"]=Samsung
+mafArray["7mm"]=Samsung
+mafArray["ST"]=Seagate
+mafArray["GB0"]=Seagate
+mafArray["Intel"]=Intel
+mafArray["INTEL"]=Intel
+mafArray["HFS"]=SKHynx
+
+# Declare global array < Program size > = < GB > Capacity
+declare -A sizeConv
+sizeConv["14 9 GB"]="16 GB"
+sizeConv["18 6 GB"]="16 GB"
+sizeConv["22 4 GB"]="24 GB"
+sizeConv["28 8 GB"]="32 GB"
+sizeConv["29 8 GB"]="32 GB"
+sizeConv["37 3 GB"]="40 GB"
+sizeConv["46 6 GB"]="50 GB"
+sizeConv["59 6 GB"]="64 GB"
+sizeConv["74 5 GB"]="80 GB"
+sizeConv["93 2 GB"]="100 GB"
+sizeConv["112 GB"]="120 GB"
+sizeConv["119 GB"]="120 GB"
+sizeConv["149 GB"]="160 GB"
+sizeConv["168 GB"]="180 GB"
+sizeConv["179 GB"]="180 GB"
+sizeConv["186 GB"]="180 GB"
+sizeConv["224 GB"]="250 GB"
+sizeConv["233 GB"]="250 GB"
+sizeConv["234 GB"]="250 GB"
+sizeConv["236 GB"]="250 GB"
+sizeConv["238 GB"]="250 GB"
+sizeConv["279 GB"]="320 GB"
+sizeConv["298 GB"]="320 GB"
+sizeConv["335 GB"]="320 GB"
+sizeConv["373 GB"]="320 GB"
+sizeConv["447 GB"]="500 GB"
+sizeConv["466 GB"]="500 GB"
+sizeConv["477 GB"]="500 GB"
+sizeConv["481 GB"]="500 GB"
+sizeConv["559 GB"]="640 GB"
+sizeConv["596 GB"]="640 GB"
+sizeConv["699 GB"]="750 GB"
+sizeConv["894 GB"]="1000 GB"
+sizeConv["932 GB"]="1000 GB"
+sizeConv["1 36 TB"]="1500 GB"
+sizeConv["1 82 TB"]="2000 GB"
+sizeConv["2 73 TB"]="3000 GB"
+sizeConv["3 64 TB"]="4000 GB"
 
 RenameFunc(){
-	if [[ -z "$3" ]]; then Change=*.pdf; else Change=$3; fi
-	if [[ "$RenameType" = "Unix" ]]; then
-		rename "$1" "$2" $Change
-	elif [[ "$RenameType" = "Perl" ]]; then
-		rename 's/$1/$2/' $Change
+	expr="$1"
+	repl="$2"
+	file="$3"
+
+	if [[ -z $file ]]; then
+		Change=*.pdf
+	else
+		Change="$file"
 	fi
+	rename "$expr" "$repl" $file 2>/dev/null &
 }
 
-FixDamnNames(){
-	MaxtorDrives=$(ls -R | grep "Maxtor")
+RenameSizes(){
+	local diskName=$(ls *.pdf)
 	IFS=$'\n'
-	for Maxtor in $MaxtorDrives; do
-		OriginalSN=$(ls | grep Maxtor | grep -o "(.*.)" | tr -d '()')
-		ChangedSN=$(ls | grep Maxtor | grep -o "(.*.)" | tr -d '()' | grep -o "S-N.* " | tr -d [:space:])
-		export OriginalSN
-		export ChangedSN
-		RenameFunc "Q$ENV{OriginalSN}" "$ENV{ChangedSN}" $Maxtor
+	for file in $diskName; do
+	(
+		size=$(echo "$file" | grep -oP "(?<= -) .*.B" | sort -u)
+		size=${size:1}
+		if [[ -v "sizeConv[${size}]" ]]; then
+			RenameFunc "$size" "${sizeConv[$size]}" "$file"
+		fi
+	) &
 	done
-
-	local DiskSizes=$(ls -R | grep -o "\- [0-9].*B" | grep -o "[0-9].*B" | sort | uniq | sed 's/[0-9]GB/ GB/g')
-	IFS=$'\n'
-	for Size in $DiskSizes; do
-		(
-			if [[ "$Size" = "14 9 GB" ]]; then
-				RenameFunc "14 9 GB" "16 GB"
-
-			elif [[ "$Size" = "28 8 GB" ]]; then
-				RenameFunc "28 8 GB" "32 GB"
-
-			elif [[ "$Size" = "29 8 GB" ]]; then
-				RenameFunc "29 8 GB" "32 GB"
-
-			elif [[ "$Size" = "46 6 GB" ]]; then
-				RenameFunc "46 6 GB" "50 GB"
-
-			elif [[ "$Size" = "59 6 GB" ]]; then
-				RenameFunc "59 6 GB" "64 GB"
-
-			elif [[ "$Size" = "74 5 GB" ]]; then
-				RenameFunc "74 5 GB" "80 GB"
-
-			elif [[ "$Size" = "93 2 GB" ]]; then
-				RenameFunc "93 2 GB" "100 GB"
-
-			elif [[ "$Size" = "112 GB" ]]; then
-				RenameFunc "112 GB" "120 GB"
-
-			elif [[ "$Size" = "119 GB" ]]; then
-				RenameFunc "119 GB" "120 GB"
-
-			elif [[ "$Size" = "149 GB" ]]; then
-				RenameFunc "149 GB" "160 GB"
-
-			elif [[ "$Size" = "168 GB" ]]; then
-				RenameFunc "168 GB" "180 GB"
-
-			elif [[ "$Size" = "179 GB" ]]; then
-				RenameFunc "179 GB" "180 GB"
-
-			elif [[ "$Size" = "224 GB" ]]; then
-				RenameFunc "224 GB" "250 GB"
-
-			elif [[ "$Size" = "233 GB" ]]; then
-				RenameFunc "233 GB" "250 GB"
-
-			elif [[ "$Size" = "234 GB" ]]; then
-				RenameFunc "234 GB" "250 GB"
-
-			elif [[ "$Size" = "238 GB" ]]; then
-				RenameFunc "238 GB" "250 GB"
-
-			elif [[ "$Size" = "279 GB" ]]; then
-				RenameFunc "279 GB" "320 GB"
-
-			elif [[ "$Size" = "298 GB" ]]; then
-				RenameFunc "298 GB" "320 GB"
-
-			elif [[ "$Size" = "335 GB" ]]; then
-				RenameFunc "335 GB" "320 GB"
-
-			elif [[ "$Size" = "447 GB" ]]; then
-				RenameFunc "447 GB" "500 GB"
-
-			elif [[ "$Size" = "466 GB" ]]; then
-				RenameFunc "466 GB" "500 GB"
-
-			elif [[ "$Size" = "477 GB" ]]; then
-				RenameFunc "477 GB" "500 GB"
-
-			elif [[ "$Size" = "596 GB" ]]; then
-				RenameFunc "596 GB" "640 GB"
-
-			elif [[ "$Size" = "699 GB" ]]; then
-				RenameFunc "699 GB" "750 GB"
-
-			elif [[ "$Size" = "932 GB" ]]; then
-				RenameFunc "932 GB" "1000 GB"
-
-			elif [[ "$Size" = "1 36 TB" ]]; then
-				RenameFunc "1 36 TB" "1500 GB"
-
-			elif [[ "$Size" = "1 82 TB" ]]; then
-				RenameFunc "1 82 TB" "2000 GB"
-
-			elif [[ "$Size" = "2 73 TB" ]]; then
-				RenameFunc "2 73 TB" "3000 GB"
-			fi
-		) &
-	done && wait
+	wait
 }
 
 DuplicateChecker(){
-	DuplicateList=$(ls -R | grep -o "(.*.) " | sort | uniq -d)
-	AmountOfDuplicates=$(echo "$DuplicateList" | wc -l)
-	if [[ ! "$AmountOfDuplicates" = 0 && "$DuplicateList" == *"S-N"* ]]; then
-		IFS=$'\n'
-		for DuplicateEntry in $DuplicateList; do
-			(
-				Duplicate=`find -name "*$DuplicateEntry*" | head -n 1` &&
-				echo "Duplicate Found: "$DuplicateEntry"- Deleting!" &&
-				rm -rf "$Duplicate"
-			) &
-		done && wait && echo "Total of $AmountOfDuplicates duplicate(-s) was deleted"
-	else
-		echo -e "No Duplicates found! Continuing...                                                                                    "\\r
-	fi
+	declare -A fileList
+	IFS=$'\n'
+	for file in $(ls -r); do
+		serial=$(echo "$file" | grep -oP "(?<=S-N ).*?(?=\))")
+		if [[ -n "$serial" ]]; then
+			if [[ -v "fileList[$serial]" ]]; then
+				curntFileDate=$(echo "$file" | grep -oP "([0-9]+-){2,}.*?(?=.pdf)" | tr -d " -")
+				arrayFileDate=$(echo "fileList[$serial]" | grep -oP "([0-9]+-){2,}.*?(?=.pdf)" | tr -d " -")
+				if [[ $curntFileDate -gt $arrayFileDate ]]; then
+					rm "${fileList[$serial]}"
+				else
+					rm "$file"
+					continue
+				fi
+			fi
+			fileList["$serial"]="$file"
+		fi
+	done
 }
 
 Mover(){
-	mv *"$1"*.pdf "$2"/ 2>/dev/null
+	pattern="$1"
+	destination="$2"
+	# If pattern exist, then move to destination
+	if [[ $(find . -maxdepth 1 -name "*${pattern}*") ]]; then
+		# Check if destination exist
+		if [ ! -d "$destination" ]; then
+			mkdir -p "$destination"
+		fi
+		mv *"$pattern"*.pdf "$destination"/
+	fi
 }
-
-FactorSorter(){
-	OutputHorizontalLine
-	mkdir -p "2.5 inch" && mkdir -p "3.5 inch" && mkdir -p "Unknown"
-	echo -e "Please wait while we sort files to respective folders! ( Factor Size )" \\r
-	LaptopHDD=0
-	DesktopHDD=0
-	UnknownHDD=0
-	TotalAmount=$(ls *.pdf | wc -l)
-	for Certificate in *.pdf; do
-		for HDDModel in $Models; do
-			HDDModel=$(echo $HDDModel | cut -d '@' -f 1)
-			if [[ "$Certificate" == *"$HDDModel"* ]]; then
-				Factor=$(echo "$Models" | grep "$HDDModel" | cut -d '@' -f 2)
-				if [[ "$Factor" == "2.5\"" ]]; then
-					mv "$Certificate" "2.5 inch" 2>/dev/null &&
-					LaptopHDD=$((LaptopHDD+1))
-					tput cup 5 0
-					echo -e "Moving to 2.5 folder [ $LaptopHDD / $TotalAmount ]"\\r
-					break 1;
-				elif [[ "$Factor" == "3.5\"" ]]; then
-					mv "$Certificate" "3.5 inch" 2>/dev/null &&
-					CurrentNumberCurrentNumber=$((CurrentNumberCurrentNumber+1))
-					tput cup 6 0
-					echo -e "Moving to 3.5 folder [ $CurrentNumberCurrentNumber / $TotalAmount ]"\\r
-					break 1;
-				else
-					mv "$Certificate" "Unknown" 2>/dev/null &&
-					UnknownHDD=$((UnknownHDD+1))
-					tput cup 7 0
-					echo -e "Moving to Unknown folder [ $UnknownHDD / $TotalAmount ]"\\r
-					break 1;
-				fi
-			fi
-		done
-	done
-	# Leftovers
-	for Certificate in *.pdf; do
-		mv "$Certificate" "Unknown" 2>/dev/null &&
-		UnknownHDD=$((UnknownHDD+1))
-		tput cup 7 0
-		echo -e "Moving to Unknown folder [ $UnknownHDD / $TotalAmount ]"\\r
-	done
 	
-	tput cup 8 0
-	find . -type d -empty -delete
-	echo ""
+FactorSorter(){
+	# Main sorter based on log file
+	for certificate in *.pdf; do
+		serial=$(echo "$certificate" | grep -waom 1 "S-N.*)")
+		if [[ -n "$serial" ]]; then
+			serial=${serial:4}
+			serial=${serial::-1}
+			if grep -q "$serial" <<< "${diskLists}"; then
+				ffactor=$(echo "$diskLists" | grep -Fm 1 $serial)
+				ffactor=${ffactor//*@/}
+
+				if [ ! -d "$ffactor" ]; then
+					mkdir -p "$ffactor"
+				fi
+
+				mv "$certificate" "$ffactor" 2>/dev/null
+			fi
+		fi
+	done
+
+	# Moving leftovers
+	for certificate in *.pdf; do
+		mv "$certificate" "Unknown" 2>/dev/null
+	done
 }
 
 SizeSorter(){
-	DiskSizes=$(ls -R | grep -o "\- [0-9].*B" | tr -d "\- " | sort | uniq | sed 's/GB/ GB/g' | sed 's/TB/ TB/g')
-	echo -e "Managing $(basename "$(pwd)\"")\t\t "\\r	
-	for Size in $DiskSizes; do
-		mkdir -p "$Size"
-		echo -ne "\tManaging $Size | "
-		Mover $Size "$Size"
+	diskSizes=$(ls | grep -oP "(?<= -) .*.B" | sort -u)
+	for size in $diskSizes; do
+		Mover "$size" "${size:1}"
 
-		cd "$Size" > /dev/null
+		cd "${size:1}" > /dev/null
 		DiskAmount=$(ls | grep ".pdf" | wc -l)
-		HDDStateSorter
-		ManufactorSorter
+		StateMafSorter
 		cd .. > /dev/null
-		echo -e "$DiskAmount pcs."
-		echo -e "\t\tDone!"\\r	
+		wait
 	done
 }
 
-HDDStateSorter(){
+StateMafSorter(){
+	shopt -s nocaseglob
+	for pattern in "${!mafArray[@]}"; do
+		dir="${mafArray[$pattern]}"
+		Mover "$pattern" "$dir"
+	done
+	wait
+
 	mkdir -p Blogi
-	for File in *.pdf; do
-		(
-			pdftotext "$File" "$File.txt" &&
-			if grep -q "FAILED" "$File.txt"; then
-				mv "$File" Blogi/
-			fi &&
-			rm -rf "$File.txt"
-		) &
+	for File in */*.pdf; do
+	(
+		if [[ $(pdftotext -raw "$File" - | grep "FAILED") ]]; then
+			mv "$File" Blogi/
+		fi
+	)
 	done && wait
 }
 
-ManufactorSorter(){
-	mkdir -p WD Toshiba Samsung Seagate HGST Hitachi Fujitsu Maxtor Intel
-	shopt -s nocaseglob
-	Mover WDC WD &
-	Mover Hitachi Hitachi &
-	Mover SAMSUNG Samsung &
-	Mover FUJITSU Fujitsu &
-	Mover TOSHIBA Toshiba &
-	Mover HGST HGST &
-	Mover ST Seagate &
-	Mover Maxtor Maxtor &
-	Mover ADATA ADATA &
-	Mover Corsair Corsair &
-	Mover SanDisk SanDisk &
-	Mover Intel Intel &
-	Mover LITEONIT LiteOnIt &
-	Mover Micron Micron &
-	tput sc
-	echo -ne "\tMoving $File      "\\r
-	tput rc; tput el
-	wait
-}
-clear && echo -en "\e[3J"
+echo -en "\e[3J"
+rm -rf *"iLO LUN"*
 
-# Find all certificates within folder with extension .pdf,
-# Not a single certificate was found, search for .tar archive
-PDFs=$(find . -name '*.pdf')
-if [[ -z "$PDFs" && $(find . -name '*.tar') ]]; then
-	for tar in *.tar; do
-		tar xf $tar
-	done && rm -rf $tar
-	PDFs=$(find . -name '*.pdf')
-fi
+# Load disk drives log, and extract only Serial and FFactor
+diskLists=$(logparser -tf "Succeed"* -c Serial FFactor)
 
-# Sources from which to get information about HDD Certificates ( Form Factor )
-HDD_DB=$(cat ~/Documents/Scripts/HDDDataBase.txt)
-Models=$(echo -e "$HDD_DB")
-if [ -f *".txt" ]; then
-	Log=$(cat $(find . -name "*.txt") | awk -F "@" '{print $2 "@" $7}')
-	Models=$(echo -e "$Log" "$HDD_DB")
-fi
-
-CheckRenamePackage
 DuplicateChecker
-FixDamnNames
+RenameSizes
 
-DateRanges=$(ls -R | grep -o "201[7-9]-..-..")
-DiskSizes=$(ls -R | grep -o "\- [0-9].*B" | tr -d "\- " | sort | uniq | sed 's/GB/ GB/g' | sed 's/TB/ TB/g')
+
 IFS=$'\n'
-if [[ "{$1,,}" == "-auto" || -z "$1" ]]; then
-	FactorSorter	
-	for FactorSize in */; do
-		cd "$FactorSize" > /dev/null
-		SizeSorter
-		cd .. > /dev/null
-	done
+FactorSorter
+for FactorSize in */; do
+	cd "$FactorSize" > /dev/null
+	SizeSorter
 	cd .. > /dev/null
-	
-elif [[ "$1" == "-x" ]]; then
-	for pdf in $PDFs; do
-		mv "$pdf" . 2> /dev/null
-	done && echo "Done!"
-fi
-
-echo -ne ""
-
+done
 find . -type d -empty -delete
