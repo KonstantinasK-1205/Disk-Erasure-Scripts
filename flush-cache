@@ -1,0 +1,55 @@
+#!/bin/bash
+# Script written by Konstantinas Kaušas
+
+# Main script purpose clear/drop drive/system caches
+# Script mainly useable for disk erase servers, so drive
+# which choke on cache could be freed and continue to be erased
+
+# Custom sleep function which output how
+# much time left before end of sleep
+function sleep() {
+	sleepTime=$1
+	# Check if timer hasn't got lower than 0
+	while [[ $sleepTime -gt 0 ]]; do
+		/bin/sleep 1
+		sleepTime=$((sleepTime - 1))
+		echo -ne "Time until update: ${sleepTime}s"\\r
+	done
+}
+
+# Variables
+repeat=false
+interval=7200
+
+# Parse options passed to script
+while getopts "rt:" opt; do
+	case $opt in
+		r)
+			repeat=true
+			;;
+		t)
+			interval="$OPTARG"
+			;;
+	esac
+done
+
+# Main script loop
+while true; do
+	timeout -k 5 25 sync &
+	for block in $(lsscsi | grep -oE "sd[a-z]+"); do
+		# Flush the on-drive write cache buffer
+		# older drives may not implement this
+		timeout -k 5 15 hdparm -F /dev/${block} &
+	done
+	echo 3 > /proc/sys/vm/drop_caches
+	clear
+
+	# If repeat is set at false, then quit
+	# script after first completion
+	if [[ $repeat == false ]]; then
+		break
+	fi
+
+	# Sleep for n(s) - amount
+	sleep $interval
+done
