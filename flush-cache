@@ -13,7 +13,8 @@ function sleep() {
 	while [[ $sleepTime -gt 0 ]]; do
 		/bin/sleep 1
 		sleepTime=$((sleepTime - 1))
-		echo -ne "Time until update: ${sleepTime}s"\\r
+		tput cuu 1 && tput el
+		echo "Time until update: ${sleepTime}s"
 	done
 }
 
