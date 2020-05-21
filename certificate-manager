@@ -9,33 +9,32 @@
 export LC_ALL='C'
 
 # Declate global array < PDF Name Pattern > = Directory Name
-declare -A mafArray
-mafArray["WDC"]=WD
-mafArray["Maxtor"]=Maxtor
-mafArray["HGST"]=HGST
-mafArray["Hitachi"]=HGST
-mafArray["HTS"]=HGST
-mafArray["SanDisk"]=SanDisk
-mafArray["TOSHIBA"]=Toshiba
-mafArray["OCZ"]=OCZ
-mafArray["FUJITSU"]=Fujitsu
-mafArray["TEAM"]=TeamGroup
-mafArray["ADATA"]=ADATA
-mafArray["ASP"]=ADATA
-mafArray["LITEONIT"]=LiteOnIt
-mafArray["HP"]=HP
-mafArray["Corsair"]=Corsair
-mafArray["Micron"]=Micron
-mafArray["CT"]=Crucial
-mafArray["SAMSUNG"]=Samsung
-mafArray["MZ-"]=Samsung
-mafArray["MTFD"]=Samsung
-mafArray["7mm"]=Samsung
-mafArray["ST"]=Seagate
-mafArray["GB0"]=Seagate
-mafArray["Intel"]=Intel
-mafArray["INTEL"]=Intel
-mafArray["HFS"]=SKHynx
+mafArray=("wdc@WDC")
+mafArray+=("hgst@HGST")
+mafArray+=("hitachi@HGST")
+mafArray+=("toshiba@Toshiba")
+mafArray+=("samsung@Samsung")
+mafArray+=("fujitsu@Fujitsu")
+mafArray+=("sandisk@SanDisk")
+mafArray+=("liteon@LiteOn")
+mafArray+=("micron@Micron")
+mafArray+=("team@TeamGroup")
+mafArray+=("corsair@Corsair")
+mafArray+=("crucial@Crucial")
+mafArray+=("pliant@Pliant")
+mafArray+=("ocz@OCZ")
+mafArray+=("adata@ADATA")
+mafArray+=("intel@Intel")
+mafArray+=("mz@Samsung")
+mafArray+=("mtfd@Samsung")
+mafArray+=("7mm@Samsung")
+mafArray+=("hynix@SKHynx")
+mafArray+=("hfs@SKHynx")
+mafArray+=("st@Seagate")
+mafArray+=("gb@Seagate")
+mafArray+=("hp@HP")
+mafArray+=("mb@HP")
+mafArray+=("wd@WD")
 
 # Declare global array < Program size > = < GB > Capacity
 declare -A sizeConv
@@ -78,140 +77,146 @@ sizeConv["1 82 TB"]="2000 GB"
 sizeConv["2 73 TB"]="3000 GB"
 sizeConv["3 64 TB"]="4000 GB"
 
-RenameFunc(){
-	expr="$1"
-	repl="$2"
-	file="$3"
-
-	if [[ -z $file ]]; then
-		Change=*.pdf
-	else
-		Change="$file"
-	fi
-	rename "$expr" "$repl" $file 2>/dev/null &
-}
-
-RenameSizes(){
-	local diskName=$(ls *.pdf)
-	IFS=$'\n'
-	for file in $diskName; do
-	(
-		size=$(echo "$file" | grep -oP "(?<= -) .*.B" | sort -u)
-		size=${size:1}
-		if [[ -v "sizeConv[${size}]" ]]; then
-			RenameFunc "$size" "${sizeConv[$size]}" "$file"
-		fi
-	) &
-	done
-	wait
-}
-
 DuplicateChecker(){
 	declare -A fileList
 	IFS=$'\n'
-	for file in $(ls -r); do
-		serial=$(echo "$file" | grep -oP "(?<=S-N ).*?(?=\))")
+	for file in *.pdf; do
+		serial="${file##*?\(S-N }"
+		serial="${serial%%\)*?}"
 		if [[ -n "$serial" ]]; then
+			# If current serial is in array
 			if [[ -v "fileList[$serial]" ]]; then
-				curntFileDate=$(echo "$file" | grep -oP "([0-9]+-){2,}.*?(?=.pdf)" | tr -d " -")
-				arrayFileDate=$(echo "fileList[$serial]" | grep -oP "([0-9]+-){2,}.*?(?=.pdf)" | tr -d " -")
+				# Extract last 23 char, so we get only date (2020-03-06 08-34-41.pdf)
+				curntFileDate="${file: -23}"
+				arrayFileDate="${fileList[$serial]: -23}"
+				# Remove last 4 char (.pdf)
+				curntFileDate="${curntFileDate::-4}"
+				arrayFileDate="${arrayFileDate::-4}"
+				# Remove all '-' chars
+				curntFileDate="${curntFileDate//-/}"
+				arrayFileDate="${arrayFileDate//-/}"
+				# Remove all ' ' spaces
+				curntFileDate="${curntFileDate/ /}"
+				arrayFileDate="${arrayFileDate/ /}"
+
+				# E.g.: 20200306083441 > 20200306083441
 				if [[ $curntFileDate -gt $arrayFileDate ]]; then
-					rm "${fileList[$serial]}"
+					rm "${fileList[$serial]}" &
 				else
-					rm "$file"
+					rm "$file" &
 					continue
 				fi
 			fi
 			fileList["$serial"]="$file"
 		fi
 	done
+	wait
 }
 
 Mover(){
-	pattern="$1"
-	destination="$2"
+	pattern=$1
+	destination=$2
 	# If pattern exist, then move to destination
-	if [[ $(find . -maxdepth 1 -name "*${pattern}*") ]]; then
+	if [[ $(find . -maxdepth 1 -type f -name "*${pattern}*.pdf" -print -quit) ]]; then
 		# Check if destination exist
 		if [ ! -d "$destination" ]; then
 			mkdir -p "$destination"
 		fi
-		mv *"$pattern"*.pdf "$destination"/
+		mv *${pattern}*.pdf "$destination"/
 	fi
 }
+
+MafChecker(){
+	file="$1"
+	pattern="$2"
+	destination="$3"
 	
+	lcaseFile="${file,,}"
+	# If pattern exist, then move to destination
+	if [ -z "${lcaseFile##*${pattern}*}" ]; then
+		# Check if destination exist
+		if [ ! -d "$destination" ]; then
+			mkdir -p "$destination"
+		fi
+		mv "${file}" "$destination"/
+		return 0
+	fi
+	return 1
+}
+
 FactorSorter(){
 	# Main sorter based on log file
 	for certificate in *.pdf; do
-		serial=$(echo "$certificate" | grep -waom 1 "S-N.*)")
+		serial=${certificate##*?\(S-N }
+		serial=${serial%%\)*?}
 		if [[ -n "$serial" ]]; then
-			serial=${serial:4}
-			serial=${serial::-1}
-			if grep -q "$serial" <<< "${diskLists}"; then
-				ffactor=$(echo "$diskLists" | grep -Fm 1 $serial)
-				ffactor=${ffactor//*@/}
-
-				if [ ! -d "$ffactor" ]; then
-					mkdir -p "$ffactor"
-				fi
-
-				mv "$certificate" "$ffactor" 2>/dev/null
+			ffactor=$(echo "$diskLists" | grep -Fm 1 ${serial} || echo "Unknown")
+			ffactor=${ffactor//*@/}
+			if [[ ! -d "$ffactor" ]]; then
+				mkdir -p "$ffactor"
 			fi
+			mv "$certificate" "$ffactor" 2>/dev/null
 		fi
-	done
-
-	# Moving leftovers
-	for certificate in *.pdf; do
-		mv "$certificate" "Unknown" 2>/dev/null
 	done
 }
 
 SizeSorter(){
+	# Get all disk drives and through loop, rename all
+	# non standart capacities to standart
 	diskSizes=$(ls | grep -oP "(?<= -) .*.B" | sort -u)
-	for size in $diskSizes; do
-		Mover "$size" "${size:1}"
+	for orgSize in $diskSizes; do
+		remSize="${orgSize:1}"
+		if [[ -v "sizeConv[${remSize}]" ]]; then
+			rename "$remSize" "${sizeConv[$remSize]}" *.pdf
+			diskSizes="${diskSizes[@]/${orgSize}/ ${sizeConv[$remSize]}}"
+		fi
+	done
 
-		cd "${size:1}" > /dev/null
-		DiskAmount=$(ls | grep ".pdf" | wc -l)
+	# Sort and get only unique values
+	diskSizes=$(echo "$diskSizes" | sort -u)
+	# Sort all drives by drive capacity
+	for size in $diskSizes; do
+		foSize="${size:1}"
+
+		Mover "${size}" "${foSize}"
 		StateMafSorter
-		cd .. > /dev/null
-		wait
 	done
 }
 
 StateMafSorter(){
-	shopt -s nocaseglob
-	for pattern in "${!mafArray[@]}"; do
-		dir="${mafArray[$pattern]}"
-		Mover "$pattern" "$dir"
-	done
-	wait
-
 	mkdir -p Blogi
-	for File in */*.pdf; do
-	(
-		if [[ $(pdftotext -raw "$File" - | grep "FAILED") ]]; then
-			mv "$File" Blogi/
-		fi
-	)
-	done && wait
-}
+	cd "${foSize}" > /dev/null
+	for certificates in *.pdf; do
+		if [[ $(pdftotext "$certificates" - | grep -F "FAILED") ]]; then
+			mv "$file" Blogi/
+		else
+			for index in "${mafArray[@]}"; do
+				pattern="${index%%@*}"
+				destination="${index##*@}"
 
-echo -en "\e[3J"
-rm -rf *"iLO LUN"*
+				MafChecker "${certificates}" "${pattern}" "${destination}"
+				if [[ $? -eq 0 ]]; then
+					break
+				fi
+			done
+		fi
+	done
+	cd .. > /dev/null
+}
 
 # Load disk drives log, and extract only Serial and FFactor
 diskLists=$(logparser -tf "Succeed"* -c Serial FFactor)
 
 DuplicateChecker
-RenameSizes
-
 
 IFS=$'\n'
 FactorSorter
 for FactorSize in */; do
+(
 	cd "$FactorSize" > /dev/null
 	SizeSorter
 	cd .. > /dev/null
+) &
 done
+wait
 find . -type d -empty -delete
