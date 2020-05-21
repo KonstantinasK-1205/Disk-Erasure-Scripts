@@ -36,11 +36,11 @@ done
 
 # Main script loop
 while true; do
-	timeout -k 5 25 sync &
+	timeout -k 5 25 sync
 	for block in $(lsscsi | grep -oE "sd[a-z]+"); do
 		# Flush the on-drive write cache buffer
 		# older drives may not implement this
-		timeout -k 5 15 hdparm -F /dev/${block} &
+		timeout -k 5 15 hdparm -F /dev/${block}
 	done
 	echo 3 > /proc/sys/vm/drop_caches
 	clear
