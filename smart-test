@@ -1,0 +1,13 @@
+#!/bin/bash
+
+disks=$(lsscsi | grep -o '/dev/sd.*')
+
+for disk in $disks; do
+(
+	echo $disk
+	smart=$(smartctl -t short $disk | grep "Drive command\|Test will complete")
+	echo ''
+) &
+done
+wait
+echo "All smart tests were done!"
