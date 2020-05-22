@@ -1,0 +1,65 @@
+#!/bin/bash
+# Script written by Konstantinas Kaušas
+
+# Mainly used for lighting up locate or
+# fault LED on disk drive enclosures
+
+if   [[ -z "$1" ]]; then
+	echo "Please pass output log file or command as an argument!"
+	exit
+elif [[ "$1" == "--on" ]]; then
+	echo "Turning On leds, please wait it can take some time..."
+	for enclosure in $(ls -d /sys/class/enclosure/*); do
+		echo "Enclosure: ${enclosure}"
+		for slot in $(ls -d ${enclosure}/[0-9]*); do
+			echo "    Slot: ${slot}"
+			echo 1 | tee ${slot}/locate
+		done &
+	done &
+	exit
+elif [[ "$1" == "--off" ]]; then
+	echo "Turning Off leds, please wait it can take some time..."
+	for enclosure in $(ls -d /sys/class/enclosure/*); do
+		echo "Enclosure: ${enclosure}"
+		for slot in $(ls -d ${enclosure}/[0-9]*); do
+			echo "    Slot: ${slot}"
+			echo 0 | tee ${slot}/locate
+			echo 0 | tee ${slot}/fault
+		done &
+	done &
+	exit
+fi
+
+log_file="$1"
+disks_output=$(cat ${log_file})
+current_good=1
+current_total=1
+total=$(ls *.pdf | wc -l)
+
+for pdf in *.pdf; do
+	pdf_content=$(pdftotext -raw "$pdf" - | cat -)
+	disk_serial=$(echo "$pdf_content" | grep -ioP "(?<=S/N: ).*(?=\))")
+	disk_status=$(echo "$pdf_content" | grep -ioP "(?<=Sanitizing Status: ).*")
+
+	disk_output=$(echo "$disks_output" | grep -i "$disk_serial")
+	disk_health=$(echo "$disk_output" | grep -ioP "[0-9]{0,3}%")
+	disk_block=$(echo "$disk_output" | grep -oE "sd[a-z]+")
+
+	if [[ "${disk_health}" == "100%" && "${disk_status}" == "SUCCESS" ]]; then
+		echo "Disk at ${disk_block} (S/N: ${disk_serial}), was erased successfully, locating... | Good: ${current_good} / Current: ${current_total} / Total: ${total}"
+		current_good=$((current_good+1))
+		
+		enclosure=$(ls "/sys/block/${disk_block}/device/" | grep 'enclosure')
+		if [[ -z "$enclosure" ]]; then
+			echo "There is no assigned enclosure for ${disk_block} | ${disk_serial}, skipping!"
+		else
+			locate_state=$(cat "/sys/block/${disk_block}/device/${enclosure}/locate")
+			if [[ "${locate_state}" == "0" ]]; then
+				echo 1 > "/sys/block/${disk_block}/device/${enclosure}/locate" &
+			fi
+		fi
+	fi
+	current_total=$((current_total+1))
+done
+wait
+exit
