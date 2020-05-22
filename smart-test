@@ -1,13 +1,67 @@
 #!/bin/bash
+# Script written by Konstantinas Kaušas
 
-disks=$(lsscsi | grep -o '/dev/sd.*')
+# Script mainly used for easier executing smart testes
+# Can be launched for one device, or all devices simultaneous
 
-for disk in $disks; do
-(
-	echo $disk
-	smart=$(smartctl -t short $disk | grep "Drive command\|Test will complete")
-	echo ''
-) &
+function smartLaunch()
+{
+	disk=${2//\/sys\/\block\//\/dev\/}
+	smartctl -t ${1} ${disk}
+}
+
+# Variables init
+all=true
+test="short"
+disk=""
+
+# Parse options passed to script
+while getopts "ad:t:" opt; do
+	case $opt in
+		a)
+			all=true
+			;;
+		d)
+			disk=${OPTARG,,}
+			;;
+		t)
+			test=${OPTARG,,}
+			;;
+	esac
 done
-wait
-echo "All smart tests were done!"
+
+# Test option check, allow only short or long tests
+if [[ -n "${test}" ]]; then
+	if [[ "${test}" == "short" ]]; then
+		test="short"
+	elif [[ "${test}" == "long" ]]; then
+		test="long"
+	else
+		echo "Test isn't supported! Only short and long are available"
+		exit
+	fi
+fi
+
+# If all mode selected, then launch smart for all devices
+# If single mode was selected, then launch smart for that devices
+if [[ -n "${disk}" && -d "/sys/block/${disk//\/dev\/}" ]]; then
+	smartLaunch "$test" "$disk"
+	echo "S.M.A.R.T Test for $disk was launched"
+elif [[ ${all} == true ]]; then
+	for disk in /sys/block/sd*; do
+	(
+		smartLaunch "$test" "$disk" &
+		while [[ -d /proc/$! ]]; do
+			if [[ $SECONDS -gt 30 ]]; then
+				kill -9 $! 2> /dev/null
+			fi
+		done
+	) &
+	done
+	wait
+	echo "All S.M.A.R.T tests were launched!"
+# If none of mode was selected, exit script
+else
+	echo "Please select all mode or single disk mode, exiting..."
+	exit
+fi
