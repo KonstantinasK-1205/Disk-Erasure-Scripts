@@ -1,0 +1,15 @@
+#!/bin/bash
+# Script written by Konstantinas Kaušas
+
+# Simple script for monitoring how many drives currently
+# in server and outputting short summary of their sizes
+
+update="${1:-1s}"
+while true; do
+	lsscsi=$(lsscsi -sd)
+	drives=$(echo "${lsscsi}" | grep "ATA\|disk" | nl | tail)
+	summary=$(echo "${lsscsi}" | grep -oE "[0-9]+?.[0-9]+[GT]B" | sort | uniq -c)
+	clear
+	echo -e "${drives}\n\n${summary}"
+	sleep $update
+done
